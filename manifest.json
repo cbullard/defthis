@@ -1,0 +1,16 @@
+{
+  "schemaVersion": 1,
+  "id": "io.github.cbullard.lookup",
+  "name": "Lookup",
+  "version": "1.0.0",
+  "author": "Craig",
+  "license": "MIT",
+  "description": "Look up the selected word in a fast, offline-capable dictionary overlay.",
+  "kinds": [
+    "overlay"
+  ],
+  "keepLoaded": true,
+  "entryPoints": {
+    "overlay": "Lookup.qml"
+  }
+}
