@@ -271,7 +271,16 @@ Item {
 
       Item {
         id: keyCatcher
-        anchors.fill: parent
+        anchors {
+          left: parent.left
+          right: parent.right
+          top: parent.top
+          bottom: parent.bottom
+          leftMargin: card.contentLeftInset
+          rightMargin: card.contentRightInset
+          topMargin: card.contentTopInset
+          bottomMargin: card.contentBottomInset
+        }
         focus: true
         Keys.priority: Keys.BeforeItem
         Keys.onPressed: function(event) {
