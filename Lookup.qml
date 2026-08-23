@@ -109,10 +109,10 @@ Item {
     }
 
     root.word = term
-    root.sourceUrl = "https://en.wiktionary.org/wiki/" + encodeURIComponent(term)
     var cacheKey = term.toLocaleLowerCase()
     var cached = root.cacheEntries[cacheKey]
     if (cached instanceof Array && cached.length > 0) {
+      root.sourceUrl = "https://en.wiktionary.org/wiki/" + encodeURIComponent(term)
       root.applyDefinitions(cached, true)
       return
     }
@@ -124,6 +124,12 @@ Item {
 
     if (root.activeRequest)
       root.activeRequest.abort()
+    root.requestDefinitions(Lookup.lookupCandidates(term), 0, cacheKey)
+  }
+
+  function requestDefinitions(candidates, candidateIndex, cacheKey) {
+    var term = candidates[candidateIndex]
+    root.sourceUrl = "https://en.wiktionary.org/wiki/" + encodeURIComponent(term)
 
     var request = new XMLHttpRequest()
     root.activeRequest = request
@@ -141,8 +147,17 @@ Item {
           root.applyDefinitions(definitions, false)
           return
         }
+        if (candidateIndex + 1 < candidates.length) {
+          root.requestDefinitions(candidates, candidateIndex + 1, cacheKey)
+          return
+        }
         root.loading = false
         root.errorText = "No definition found."
+        return
+      }
+
+      if (request.status === 404 && candidateIndex + 1 < candidates.length) {
+        root.requestDefinitions(candidates, candidateIndex + 1, cacheKey)
         return
       }
 

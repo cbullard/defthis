@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "id": "io.github.cbullard.lookup",
   "name": "Lookup",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "author": "Craig",
   "license": "MIT",
   "description": "Look up the selected word in a fast, offline-capable dictionary overlay.",

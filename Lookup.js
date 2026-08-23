@@ -14,6 +14,15 @@ function normalizedTerm(rawText) {
   return term
 }
 
+function lookupCandidates(rawTerm) {
+  var term = normalizedTerm(rawTerm)
+  if (term.length === 0)
+    return []
+
+  var lowercaseTerm = term.toLocaleLowerCase()
+  return lowercaseTerm === term ? [term] : [term, lowercaseTerm]
+}
+
 function plainText(html) {
   return String(html || "")
     .replace(/<[^>]*>/g, "")

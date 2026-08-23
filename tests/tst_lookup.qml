@@ -13,6 +13,14 @@ TestCase {
     compare(Lookup.normalizedTerm(""), "")
   }
 
+  function test_preservesCaseBeforeTryingLowercase() {
+    compare(Lookup.lookupCandidates("Serendipity").join("|"),
+            "Serendipity|serendipity")
+    compare(Lookup.lookupCandidates("US").join("|"), "US|us")
+    compare(Lookup.lookupCandidates("serendipity").join("|"), "serendipity")
+    compare(Lookup.lookupCandidates("two words").length, 0)
+  }
+
   function test_parsesWiktionaryDefinitions() {
     var response = JSON.stringify({
       en: [{
