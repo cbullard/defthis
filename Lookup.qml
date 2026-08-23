@@ -124,11 +124,10 @@ Item {
 
     if (root.activeRequest)
       root.activeRequest.abort()
-    root.requestDefinitions(Lookup.lookupCandidates(term), 0, cacheKey)
+    root.requestDefinitions(term, cacheKey, Lookup.lowercaseFallback(term))
   }
 
-  function requestDefinitions(candidates, candidateIndex, cacheKey) {
-    var term = candidates[candidateIndex]
+  function requestDefinitions(term, cacheKey, fallbackTerm) {
     root.sourceUrl = "https://en.wiktionary.org/wiki/" + encodeURIComponent(term)
 
     var request = new XMLHttpRequest()
@@ -147,8 +146,8 @@ Item {
           root.applyDefinitions(definitions, false)
           return
         }
-        if (candidateIndex + 1 < candidates.length) {
-          root.requestDefinitions(candidates, candidateIndex + 1, cacheKey)
+        if (fallbackTerm.length > 0) {
+          root.requestDefinitions(fallbackTerm, cacheKey, "")
           return
         }
         root.loading = false
@@ -156,8 +155,8 @@ Item {
         return
       }
 
-      if (request.status === 404 && candidateIndex + 1 < candidates.length) {
-        root.requestDefinitions(candidates, candidateIndex + 1, cacheKey)
+      if (request.status === 404 && fallbackTerm.length > 0) {
+        root.requestDefinitions(fallbackTerm, cacheKey, "")
         return
       }
 

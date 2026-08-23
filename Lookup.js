@@ -14,13 +14,13 @@ function normalizedTerm(rawText) {
   return term
 }
 
-function lookupCandidates(rawTerm) {
+function lowercaseFallback(rawTerm) {
   var term = normalizedTerm(rawTerm)
   if (term.length === 0)
-    return []
+    return ""
 
   var lowercaseTerm = term.toLocaleLowerCase()
-  return lowercaseTerm === term ? [term] : [term, lowercaseTerm]
+  return lowercaseTerm === term ? "" : lowercaseTerm
 }
 
 function plainText(html) {

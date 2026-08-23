@@ -14,11 +14,10 @@ TestCase {
   }
 
   function test_preservesCaseBeforeTryingLowercase() {
-    compare(Lookup.lookupCandidates("Serendipity").join("|"),
-            "Serendipity|serendipity")
-    compare(Lookup.lookupCandidates("US").join("|"), "US|us")
-    compare(Lookup.lookupCandidates("serendipity").join("|"), "serendipity")
-    compare(Lookup.lookupCandidates("two words").length, 0)
+    compare(Lookup.lowercaseFallback("Serendipity"), "serendipity")
+    compare(Lookup.lowercaseFallback("US"), "us")
+    compare(Lookup.lowercaseFallback("serendipity"), "")
+    compare(Lookup.lowercaseFallback("two words"), "")
   }
 
   function test_parsesWiktionaryDefinitions() {
