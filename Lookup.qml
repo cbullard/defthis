@@ -147,7 +147,7 @@ Item {
           return
         }
         if (fallbackTerm.length > 0) {
-          root.requestDefinitions(fallbackTerm, cacheKey, "")
+          root.retryDefinitions(fallbackTerm, cacheKey)
           return
         }
         root.loading = false
@@ -156,7 +156,7 @@ Item {
       }
 
       if (request.status === 404 && fallbackTerm.length > 0) {
-        root.requestDefinitions(fallbackTerm, cacheKey, "")
+        root.retryDefinitions(fallbackTerm, cacheKey)
         return
       }
 
@@ -172,6 +172,13 @@ Item {
                              "Omarchy Lookup/1.0 (https://github.com/cbullard/lookup)")
     request.send()
     requestTimeout.restart()
+  }
+
+  function retryDefinitions(term, cacheKey) {
+    Qt.callLater(function() {
+      if (root.opened)
+        root.requestDefinitions(term, cacheKey, "")
+    })
   }
 
   function openSource() {
