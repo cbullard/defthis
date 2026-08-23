@@ -1,16 +1,16 @@
 {
   "schemaVersion": 1,
-  "id": "io.github.cbullard.lookup",
-  "name": "Lookup",
+  "id": "io.github.cbullard.defthis",
+  "name": "DefThis",
   "version": "1.0.3",
   "author": "Craig",
   "license": "MIT",
-  "description": "Look up the selected word in a fast, offline-capable dictionary overlay.",
+  "description": "Define the selected word in a fast, offline-capable dictionary overlay.",
   "kinds": [
     "overlay"
   ],
   "keepLoaded": true,
   "entryPoints": {
-    "overlay": "Lookup.qml"
+    "overlay": "DefThis.qml"
   }
 }

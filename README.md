@@ -1,7 +1,9 @@
-# Lookup
+# DefThis
 
-An Omarchy shell overlay that looks up the currently selected word without
-leaving the application you are using.
+Select it. DefThis.
+
+DefThis is an Omarchy shell overlay that defines the currently selected word
+without leaving the application you are using.
 
 Definitions come from Wiktionary. Successful lookups are cached locally, so
 previously looked-up words remain available offline.
@@ -18,7 +20,7 @@ second Quickshell instance or require elevated privileges.
 ## Install
 
 ```sh
-omarchy plugin add https://github.com/cbullard/lookup.git --enable
+omarchy plugin add https://github.com/cbullard/defthis.git --enable
 ```
 
 ## Add a shortcut
@@ -26,7 +28,7 @@ omarchy plugin add https://github.com/cbullard/lookup.git --enable
 Add the following to `~/.config/hypr/bindings.lua`:
 
 ```lua
-o.bind("SUPER + ALT + D", "Dictionary Lookup", "omarchy-shell shell summon io.github.cbullard.lookup '{}'")
+o.bind("SUPER + ALT + D", "DefThis", "omarchy-shell shell summon io.github.cbullard.defthis '{}'")
 ```
 
 Hyprland reloads the binding automatically. Change `SUPER + ALT + D` to any
@@ -44,13 +46,13 @@ For development, a word can be supplied directly without changing the primary
 selection:
 
 ```sh
-omarchy-shell shell summon io.github.cbullard.lookup '{"term":"serendipity"}'
+omarchy-shell shell summon io.github.cbullard.defthis '{"term":"serendipity"}'
 ```
 
 ## Privacy and storage
 
 The selected word is sent to Wiktionary only when it is not already cached.
-Cached definitions are stored in `${XDG_CACHE_HOME:-~/.cache}/omarchy-lookup.json`.
+Cached definitions are stored in `${XDG_CACHE_HOME:-~/.cache}/omarchy-defthis.json`.
 No clipboard watcher runs in the background; selection is read only when the
 overlay is summoned.
 
@@ -61,7 +63,7 @@ License. The plugin UI links every result back to its Wiktionary entry.
 
 ```sh
 omarchy plugin validate .
-qmllint -I "$OMARCHY_PATH/shell" Lookup.qml
+qmllint -I "$OMARCHY_PATH/shell" DefThis.qml
 env -u QT_QPA_PLATFORMTHEME QT_QPA_PLATFORM=offscreen \
   /usr/lib/qt6/bin/qmltestrunner -input tests
 ```
@@ -71,5 +73,5 @@ env -u QT_QPA_PLATFORMTHEME QT_QPA_PLATFORM=offscreen \
 Remove the shortcut line from `~/.config/hypr/bindings.lua`, then run:
 
 ```sh
-omarchy plugin remove io.github.cbullard.lookup
+omarchy plugin remove io.github.cbullard.defthis
 ```

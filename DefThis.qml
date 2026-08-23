@@ -5,7 +5,7 @@ import Quickshell.Io
 import Quickshell.Wayland
 import qs.Commons
 import qs.Ui
-import "Lookup.js" as Lookup
+import "DefThis.js" as DefThis
 
 Item {
   id: root
@@ -23,7 +23,7 @@ Item {
 
   readonly property string cacheRoot: Quickshell.env("XDG_CACHE_HOME")
     || (Quickshell.env("HOME") + "/.cache")
-  readonly property string cachePath: cacheRoot + "/omarchy-lookup.json"
+  readonly property string cachePath: cacheRoot + "/omarchy-defthis.json"
   readonly property int contentMargin: Style.spacing.panelPadding
   readonly property int cardWidth: Math.min(Style.space(560), panel.width - Style.gapsOut * 2)
   readonly property int cardHeight: Math.min(Style.space(560), panel.height - Style.gapsOut * 2)
@@ -41,7 +41,7 @@ Item {
     definitionsModel.clear()
     Qt.callLater(function() { keyCatcher.forceActiveFocus() })
 
-    var explicitTerm = Lookup.normalizedTerm(payload.term || "")
+    var explicitTerm = DefThis.normalizedTerm(payload.term || "")
     if (explicitTerm.length > 0) {
       root.lookUp(explicitTerm)
       return
@@ -67,7 +67,7 @@ Item {
   function dismiss() {
     root.close()
     if (root.shell && typeof root.shell.hide === "function")
-      root.shell.hide((root.manifest && root.manifest.id) || "io.github.cbullard.lookup")
+      root.shell.hide((root.manifest && root.manifest.id) || "io.github.cbullard.defthis")
   }
 
   function toggle(payloadJson) {
@@ -78,7 +78,7 @@ Item {
   function selectionReceived(text) {
     if (!root.opened)
       return
-    var term = Lookup.normalizedTerm(text)
+    var term = DefThis.normalizedTerm(text)
     if (term.length === 0) {
       root.loading = false
       root.errorText = "Select a single word, then try the shortcut again."
@@ -101,7 +101,7 @@ Item {
   }
 
   function lookUp(rawTerm) {
-    var term = Lookup.normalizedTerm(rawTerm)
+    var term = DefThis.normalizedTerm(rawTerm)
     if (term.length === 0) {
       root.loading = false
       root.errorText = "Select a single word, then try the shortcut again."
@@ -124,7 +124,7 @@ Item {
 
     if (root.activeRequest)
       root.activeRequest.abort()
-    root.requestDefinitions(term, cacheKey, Lookup.lowercaseFallback(term))
+    root.requestDefinitions(term, cacheKey, DefThis.lowercaseFallback(term))
   }
 
   function requestDefinitions(term, cacheKey, fallbackTerm) {
@@ -139,7 +139,7 @@ Item {
       requestTimeout.stop()
       root.activeRequest = null
       if (request.status === 200) {
-        var definitions = Lookup.definitionsFromResponse(request.responseText)
+        var definitions = DefThis.definitionsFromResponse(request.responseText)
         if (definitions.length > 0) {
           root.cacheEntries[cacheKey] = definitions
           cacheFile.setText(JSON.stringify({ version: 1, entries: root.cacheEntries }, null, 2) + "\n")
@@ -169,7 +169,7 @@ Item {
                  + encodeURIComponent(term))
     request.setRequestHeader("Accept", "application/json")
     request.setRequestHeader("Api-User-Agent",
-                             "Omarchy Lookup/1.0 (https://github.com/cbullard/lookup)")
+                             "DefThis/1.0 (https://github.com/cbullard/defthis)")
     request.send()
     requestTimeout.restart()
   }
@@ -241,7 +241,7 @@ Item {
     visible: root.opened
     anchors { top: true; bottom: true; left: true; right: true }
     color: "transparent"
-    WlrLayershell.namespace: "omarchy-lookup"
+    WlrLayershell.namespace: "omarchy-defthis"
     WlrLayershell.layer: WlrLayer.Overlay
     WlrLayershell.keyboardFocus: WlrKeyboardFocus.Exclusive
     exclusionMode: ExclusionMode.Ignore
@@ -293,7 +293,7 @@ Item {
 
           Text {
             width: parent.width
-            text: root.word || "Dictionary Lookup"
+            text: root.word || "DefThis"
             color: Color.menu.text
             font.family: Style.font.menuFamily
             font.pixelSize: Style.font.title
