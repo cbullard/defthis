@@ -11,6 +11,7 @@ previously looked-up words remain available offline.
 ## Requirements
 
 - Omarchy Quattro
+- Python 3.10 or newer
 - `wl-clipboard` for reading the Wayland primary selection
 - An internet connection for the first lookup of a word
 
@@ -52,10 +53,15 @@ omarchy-shell shell summon io.github.cbullard.defthis '{"term":"serendipity"}'
 ## Privacy and storage
 
 The selected word is sent to Wiktionary only when it is not already cached.
-Cached definitions are stored in `${XDG_CACHE_HOME:-~/.cache}/omarchy-defthis.json`.
-Wiktionary responses are limited to 1 MiB. The persistent cache is limited to
-100 entries and 1 MiB, with the oldest stored entries pruned first. An oversized
-legacy cache is reset before it can be loaded into the shell process.
+Cached definitions are stored in
+`${XDG_CACHE_HOME:-$HOME/.cache}/omarchy-defthis/cache.json`. The inspectable
+Python helper reads Wiktionary responses in bounded chunks and stops at 1 MiB;
+the response is parsed outside the long-lived shell process. Cache files are
+opened without following symbolic links, required to be regular files, and
+read through the same file descriptor used for validation. The persistent
+cache is limited to 100 entries and 1 MiB, with the oldest stored entries
+pruned first and updates written atomically with owner-only permissions. The
+primary selection is also read through the helper with a 1 KiB limit.
 No clipboard watcher runs in the background; selection is read only when the
 overlay is summoned.
 
@@ -67,6 +73,7 @@ License. The plugin UI links every result back to its Wiktionary entry.
 ```sh
 omarchy plugin validate .
 qmllint -I "$OMARCHY_PATH/shell" DefThis.qml
+python3 -m unittest -v tests/test_backend.py
 env -u QT_QPA_PLATFORMTHEME QT_QPA_PLATFORM=offscreen \
   /usr/lib/qt6/bin/qmltestrunner -input tests
 ```

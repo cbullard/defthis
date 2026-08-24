@@ -18,19 +18,17 @@ Item {
   property string word: ""
   property string errorText: ""
   property string sourceUrl: ""
-  property var cacheEntries: ({})
-  property var activeRequest: null
-  property bool cacheFileReady: false
 
-  readonly property string cacheRoot: Quickshell.env("XDG_CACHE_HOME")
-    || (Quickshell.env("HOME") + "/.cache")
-  readonly property string cachePath: cacheRoot + "/omarchy-defthis.json"
+  readonly property string backendPath: resolvedLocalPath("DefThisBackend.py")
   readonly property int contentMargin: Style.spacing.panelPadding
   readonly property int cardWidth: Math.min(Style.space(560), panel.width - Style.gapsOut * 2)
   readonly property int cardHeight: Math.min(Style.space(560), panel.height - Style.gapsOut * 2)
-  readonly property int maxResponseBytes: 1024 * 1024
-  readonly property int maxCacheBytes: 1024 * 1024
-  readonly property int maxCacheEntries: 100
+
+  function resolvedLocalPath(relativePath) {
+    var value = String(Qt.resolvedUrl(relativePath))
+    return value.indexOf("file://") === 0
+      ? decodeURIComponent(value.slice(7)) : value
+  }
 
   function open(payloadJson) {
     var payload = ({})
@@ -60,12 +58,9 @@ Item {
     root.opened = false
     if (selectionProcess.running)
       selectionProcess.running = false
+    if (lookupProcess.running)
+      lookupProcess.running = false
     requestTimeout.stop()
-    if (root.activeRequest) {
-      var request = root.activeRequest
-      root.activeRequest = null
-      request.abort()
-    }
   }
 
   function dismiss() {
@@ -79,13 +74,22 @@ Item {
     else root.open(payloadJson || "{}")
   }
 
-  function selectionReceived(text) {
+  function selectionReceived(rawResult) {
     if (!root.opened)
       return
-    var term = DefThis.normalizedTerm(text)
+    var result
+    try {
+      result = JSON.parse(String(rawResult || ""))
+    } catch (error) {
+      result = ({ status: "error", selection: "" })
+    }
+    var term = result.status === "ok"
+      ? DefThis.normalizedTerm(result.selection || "") : ""
     if (term.length === 0) {
       root.loading = false
-      root.errorText = "Select a single word, then try the shortcut again."
+      root.errorText = result.status === "oversized"
+        ? "The selected text is too large. Select a single word and try again."
+        : "Select a single word, then try the shortcut again."
       return
     }
     root.lookUp(term)
@@ -104,35 +108,6 @@ Item {
     root.errorText = definitionsModel.count > 0 ? "" : "No definition found."
   }
 
-  function saveBoundedCache() {
-    root.cacheEntries = DefThis.boundedCacheEntries(
-      root.cacheEntries, root.maxCacheEntries, root.maxCacheBytes)
-    if (!root.cacheFileReady)
-      return
-    cacheFile.setText(DefThis.cachePayloadText(root.cacheEntries))
-  }
-
-  function cacheSizeReceived(rawSize) {
-    var bytes = Number(String(rawSize || "").trim())
-    if (isFinite(bytes) && bytes > root.maxCacheBytes) {
-      root.cacheEntries = ({})
-      root.cacheFileReady = false
-      resetOversizedCache.running = true
-      return
-    }
-    root.cacheFileReady = true
-  }
-
-  function rejectOversizedResponse(request) {
-    if (root.activeRequest !== request)
-      return
-    root.activeRequest = null
-    requestTimeout.stop()
-    request.abort()
-    root.loading = false
-    root.errorText = "Wiktionary response exceeded the 1 MiB safety limit."
-  }
-
   function lookUp(rawTerm) {
     var term = DefThis.normalizedTerm(rawTerm)
     if (term.length === 0) {
@@ -142,97 +117,43 @@ Item {
     }
 
     root.word = term
-    var cacheKey = term.toLocaleLowerCase()
-    var cached = root.cacheEntries[cacheKey]
-    if (cached instanceof Array && cached.length > 0) {
-      root.sourceUrl = "https://en.wiktionary.org/wiki/" + encodeURIComponent(term)
-      root.applyDefinitions(cached, true)
-      return
-    }
-
+    root.sourceUrl = "https://en.wiktionary.org/wiki/" + encodeURIComponent(term)
     root.loading = true
     root.fromCache = false
     root.errorText = ""
     definitionsModel.clear()
 
-    if (root.activeRequest)
-      root.activeRequest.abort()
-    root.requestDefinitions(term, cacheKey, DefThis.lowercaseFallback(term))
-  }
-
-  function requestDefinitions(term, cacheKey, fallbackTerm) {
-    root.sourceUrl = "https://en.wiktionary.org/wiki/" + encodeURIComponent(term)
-
-    var request = new XMLHttpRequest()
-    root.activeRequest = request
-    request.onreadystatechange = function() {
-      if (root.activeRequest !== request)
-        return
-
-      if (request.readyState === XMLHttpRequest.HEADERS_RECEIVED) {
-        var contentLength = Number(request.getResponseHeader("Content-Length") || 0)
-        if (isFinite(contentLength) && contentLength > root.maxResponseBytes)
-          root.rejectOversizedResponse(request)
-        return
-      }
-
-      if (request.readyState !== XMLHttpRequest.DONE)
-        return
-
-      if (DefThis.utf8ByteLength(request.responseText) > root.maxResponseBytes) {
-        root.rejectOversizedResponse(request)
-        return
-      }
-
-      requestTimeout.stop()
-      root.activeRequest = null
-      if (request.status === 200) {
-        var definitions = DefThis.definitionsFromResponse(request.responseText)
-        if (definitions.length > 0) {
-          root.cacheEntries = DefThis.withBoundedCacheEntry(
-            root.cacheEntries, cacheKey, definitions,
-            root.maxCacheEntries, root.maxCacheBytes)
-          root.saveBoundedCache()
-          root.applyDefinitions(definitions, false)
-          return
-        }
-        if (fallbackTerm.length > 0) {
-          root.retryDefinitions(fallbackTerm, cacheKey)
-          return
-        }
-        root.loading = false
-        root.errorText = "No definition found."
-        return
-      }
-
-      if (request.status === 404 && fallbackTerm.length > 0) {
-        root.retryDefinitions(fallbackTerm, cacheKey)
-        return
-      }
-
-      root.loading = false
-      root.errorText = request.status === 404
-        ? "No definition found."
-        : "Could not reach Wiktionary, and this word is not cached for offline use."
-    }
-    request.open("GET", "https://en.wiktionary.org/api/rest_v1/page/definition/"
-                 + encodeURIComponent(term))
-    request.setRequestHeader("Accept", "application/json")
-    request.setRequestHeader("Api-User-Agent",
-                             "DefThis/1.0.4 (https://github.com/cbullard/defthis)")
-    request.onprogress = function(event) {
-      if (root.activeRequest === request && event.loaded > root.maxResponseBytes)
-        root.rejectOversizedResponse(request)
-    }
-    request.send()
+    if (lookupProcess.running)
+      lookupProcess.running = false
+    lookupProcess.command = [root.backendPath, "lookup", term]
+    lookupProcess.running = true
     requestTimeout.restart()
   }
 
-  function retryDefinitions(term, cacheKey) {
-    Qt.callLater(function() {
-      if (root.opened)
-        root.requestDefinitions(term, cacheKey, "")
-    })
+  function lookupReceived(rawResult) {
+    if (!root.opened)
+      return
+    requestTimeout.stop()
+    var result
+    try {
+      result = JSON.parse(String(rawResult || ""))
+    } catch (error) {
+      result = ({ status: "error", definitions: [] })
+    }
+    if (result.status === "ok" && result.definitions instanceof Array
+        && result.definitions.length > 0) {
+      root.applyDefinitions(result.definitions, Boolean(result.cached))
+      return
+    }
+    root.loading = false
+    if (result.status === "not-found")
+      root.errorText = "No definition found."
+    else if (result.status === "oversized")
+      root.errorText = "Wiktionary response exceeded the 1 MiB safety limit."
+    else if (result.status === "invalid")
+      root.errorText = "Select a single word, then try the shortcut again."
+    else
+      root.errorText = "Could not reach Wiktionary, and this word is not cached for offline use."
   }
 
   function openSource() {
@@ -245,76 +166,42 @@ Item {
 
   ListModel { id: definitionsModel }
 
-  FileView {
-    id: cacheFile
-    path: root.cacheFileReady ? root.cachePath : ""
-    atomicWrites: true
-    printErrors: false
-    onLoaded: {
-      var rawCache = text()
-      if (DefThis.utf8ByteLength(rawCache) > root.maxCacheBytes) {
-        root.cacheEntries = ({})
-        root.cacheFileReady = false
-        resetOversizedCache.running = true
-        return
-      }
-      try {
-        var parsed = JSON.parse(rawCache)
-        root.cacheEntries = parsed && (parsed.version === 1 || parsed.version === 2) && parsed.entries
-          ? parsed.entries
-          : ({})
-        root.cacheEntries = DefThis.boundedCacheEntries(
-          root.cacheEntries, root.maxCacheEntries, root.maxCacheBytes)
-        var boundedCache = DefThis.cachePayloadText(root.cacheEntries)
-        if (boundedCache !== rawCache)
-          cacheFile.setText(boundedCache)
-      } catch (error) {
-        root.cacheEntries = ({})
-      }
-    }
-    onLoadFailed: root.cacheEntries = ({})
-  }
-
   Process {
-    id: ensureCacheDirectory
-    command: ["mkdir", "-p", root.cacheRoot]
-    onExited: cacheSizeProcess.running = true
-  }
-
-  Process {
-    id: cacheSizeProcess
-    command: ["stat", "-c", "%s", root.cachePath]
+    id: lookupProcess
     stdout: StdioCollector {
       waitForEnd: true
-      onStreamFinished: root.cacheSizeReceived(text)
+      onStreamFinished: root.lookupReceived(text)
     }
-  }
-
-  Process {
-    id: resetOversizedCache
-    command: ["truncate", "-s", "0", root.cachePath]
     onExited: function(exitCode) {
-      root.cacheFileReady = exitCode === 0
+      if (exitCode !== 0 && root.opened && root.loading) {
+        requestTimeout.stop()
+        root.loading = false
+        root.errorText = "DefThis could not start its bounded lookup helper."
+      }
     }
   }
 
   Process {
     id: selectionProcess
-    command: ["wl-paste", "--primary", "--type", "text", "--no-newline"]
+    command: [root.backendPath, "selection"]
     stdout: StdioCollector {
       waitForEnd: true
       onStreamFinished: root.selectionReceived(text)
+    }
+    onExited: function(exitCode) {
+      if (exitCode !== 0 && root.opened && root.loading) {
+        root.loading = false
+        root.errorText = "DefThis could not read the selected word."
+      }
     }
   }
 
   Timer {
     id: requestTimeout
-    interval: 4000
+    interval: 6000
     onTriggered: {
-      if (root.activeRequest) {
-        root.activeRequest.abort()
-        root.activeRequest = null
-      }
+      if (lookupProcess.running)
+        lookupProcess.running = false
       root.loading = false
       root.errorText = "Wiktionary did not respond, and this word is not cached for offline use."
     }
@@ -541,7 +428,4 @@ Item {
     }
   }
 
-  Component.onCompleted: {
-    ensureCacheDirectory.running = true
-  }
 }
