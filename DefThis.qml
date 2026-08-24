@@ -274,6 +274,7 @@ Item {
           Text {
             width: parent.width
             text: root.word || "DefThis"
+            textFormat: Text.PlainText
             color: Color.menu.text
             font.family: Style.font.menuFamily
             font.pixelSize: Style.font.title
@@ -369,6 +370,7 @@ Item {
             width: parent.width
             visible: root.errorText.length > 0
             text: root.errorText
+            textFormat: Text.PlainText
             color: Color.menu.text
             horizontalAlignment: Text.AlignHCenter
             wrapMode: Text.WordWrap
@@ -399,6 +401,7 @@ Item {
                 anchors.right: parent.right
                 anchors.top: parent.top
                 text: parent.partOfSpeech
+                textFormat: Text.PlainText
                 visible: text.length > 0
                 color: Color.menu.text
                 opacity: 0.58

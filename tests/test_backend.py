@@ -62,6 +62,27 @@ class BackendTests(unittest.TestCase):
     def cache_directory(self):
         return Path(self.temporary.name) / backend.CACHE_DIRECTORY_NAME
 
+    def test_untrusted_qml_values_are_plain_text(self):
+        source = (Path(__file__).resolve().parents[1] / "DefThis.qml").read_text()
+
+        def text_block(binding):
+            binding_index = source.index(binding)
+            block_start = source.rfind("Text {", 0, binding_index)
+            depth = 0
+            for index in range(source.index("{", block_start), len(source)):
+                if source[index] == "{":
+                    depth += 1
+                elif source[index] == "}":
+                    depth -= 1
+                    if depth == 0:
+                        return source[block_start:index + 1]
+            self.fail(f"Unterminated QML Text block for {binding}")
+
+        for binding in ("text: root.word ||", "text: root.errorText",
+                        "text: parent.partOfSpeech", "text: parent.definition"):
+            with self.subTest(binding=binding):
+                self.assertIn("textFormat: Text.PlainText", text_block(binding))
+
     def test_parses_and_bounds_definitions(self):
         definitions = backend.definitions_from_payload({
             "en": [{
