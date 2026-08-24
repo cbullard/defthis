@@ -20,6 +20,41 @@ TestCase {
     compare(DefThis.lowercaseFallback("two words"), "")
   }
 
+  function test_countsUtf8Bytes() {
+    compare(DefThis.utf8ByteLength("plain"), 5)
+    compare(DefThis.utf8ByteLength("café"), 5)
+    compare(DefThis.utf8ByteLength("😀"), 4)
+  }
+
+  function test_boundsCacheByEntryCountAndRecency() {
+    var entries = {
+      first: [{ definition: "First." }],
+      second: [{ definition: "Second." }],
+      third: [{ definition: "Third." }]
+    }
+    var bounded = DefThis.boundedCacheEntries(entries, 2, 10000)
+    compare(Object.keys(bounded).length, 2)
+    verify(bounded.first === undefined)
+    verify(bounded.second !== undefined)
+    verify(bounded.third !== undefined)
+
+    bounded = DefThis.withBoundedCacheEntry(
+      bounded, "second", [{ definition: "Updated." }], 2, 10000)
+    compare(Object.keys(bounded)[0], "third")
+    compare(Object.keys(bounded)[1], "second")
+    compare(bounded.second[0].definition, "Updated.")
+  }
+
+  function test_boundsSerializedCacheBytes() {
+    var entries = {
+      first: [{ definition: new Array(121).join("A") }],
+      second: [{ definition: new Array(121).join("B") }]
+    }
+    var bounded = DefThis.boundedCacheEntries(entries, 10, 220)
+    verify(DefThis.utf8ByteLength(DefThis.cachePayloadText(bounded)) <= 220)
+    verify(Object.keys(bounded).length < 2)
+  }
+
   function test_parsesWiktionaryDefinitions() {
     var response = JSON.stringify({
       en: [{

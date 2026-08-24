@@ -20,6 +20,7 @@ Item {
   property string sourceUrl: ""
   property var cacheEntries: ({})
   property var activeRequest: null
+  property bool cacheFileReady: false
 
   readonly property string cacheRoot: Quickshell.env("XDG_CACHE_HOME")
     || (Quickshell.env("HOME") + "/.cache")
@@ -27,6 +28,9 @@ Item {
   readonly property int contentMargin: Style.spacing.panelPadding
   readonly property int cardWidth: Math.min(Style.space(560), panel.width - Style.gapsOut * 2)
   readonly property int cardHeight: Math.min(Style.space(560), panel.height - Style.gapsOut * 2)
+  readonly property int maxResponseBytes: 1024 * 1024
+  readonly property int maxCacheBytes: 1024 * 1024
+  readonly property int maxCacheEntries: 100
 
   function open(payloadJson) {
     var payload = ({})
@@ -100,6 +104,35 @@ Item {
     root.errorText = definitionsModel.count > 0 ? "" : "No definition found."
   }
 
+  function saveBoundedCache() {
+    root.cacheEntries = DefThis.boundedCacheEntries(
+      root.cacheEntries, root.maxCacheEntries, root.maxCacheBytes)
+    if (!root.cacheFileReady)
+      return
+    cacheFile.setText(DefThis.cachePayloadText(root.cacheEntries))
+  }
+
+  function cacheSizeReceived(rawSize) {
+    var bytes = Number(String(rawSize || "").trim())
+    if (isFinite(bytes) && bytes > root.maxCacheBytes) {
+      root.cacheEntries = ({})
+      root.cacheFileReady = false
+      resetOversizedCache.running = true
+      return
+    }
+    root.cacheFileReady = true
+  }
+
+  function rejectOversizedResponse(request) {
+    if (root.activeRequest !== request)
+      return
+    root.activeRequest = null
+    requestTimeout.stop()
+    request.abort()
+    root.loading = false
+    root.errorText = "Wiktionary response exceeded the 1 MiB safety limit."
+  }
+
   function lookUp(rawTerm) {
     var term = DefThis.normalizedTerm(rawTerm)
     if (term.length === 0) {
@@ -133,16 +166,33 @@ Item {
     var request = new XMLHttpRequest()
     root.activeRequest = request
     request.onreadystatechange = function() {
-      if (request.readyState !== XMLHttpRequest.DONE || root.activeRequest !== request)
+      if (root.activeRequest !== request)
         return
+
+      if (request.readyState === XMLHttpRequest.HEADERS_RECEIVED) {
+        var contentLength = Number(request.getResponseHeader("Content-Length") || 0)
+        if (isFinite(contentLength) && contentLength > root.maxResponseBytes)
+          root.rejectOversizedResponse(request)
+        return
+      }
+
+      if (request.readyState !== XMLHttpRequest.DONE)
+        return
+
+      if (DefThis.utf8ByteLength(request.responseText) > root.maxResponseBytes) {
+        root.rejectOversizedResponse(request)
+        return
+      }
 
       requestTimeout.stop()
       root.activeRequest = null
       if (request.status === 200) {
         var definitions = DefThis.definitionsFromResponse(request.responseText)
         if (definitions.length > 0) {
-          root.cacheEntries[cacheKey] = definitions
-          cacheFile.setText(JSON.stringify({ version: 1, entries: root.cacheEntries }, null, 2) + "\n")
+          root.cacheEntries = DefThis.withBoundedCacheEntry(
+            root.cacheEntries, cacheKey, definitions,
+            root.maxCacheEntries, root.maxCacheBytes)
+          root.saveBoundedCache()
           root.applyDefinitions(definitions, false)
           return
         }
@@ -169,7 +219,11 @@ Item {
                  + encodeURIComponent(term))
     request.setRequestHeader("Accept", "application/json")
     request.setRequestHeader("Api-User-Agent",
-                             "DefThis/1.0 (https://github.com/cbullard/defthis)")
+                             "DefThis/1.0.4 (https://github.com/cbullard/defthis)")
+    request.onprogress = function(event) {
+      if (root.activeRequest === request && event.loaded > root.maxResponseBytes)
+        root.rejectOversizedResponse(request)
+    }
     request.send()
     requestTimeout.restart()
   }
@@ -193,15 +247,27 @@ Item {
 
   FileView {
     id: cacheFile
-    path: root.cachePath
+    path: root.cacheFileReady ? root.cachePath : ""
     atomicWrites: true
     printErrors: false
     onLoaded: {
+      var rawCache = text()
+      if (DefThis.utf8ByteLength(rawCache) > root.maxCacheBytes) {
+        root.cacheEntries = ({})
+        root.cacheFileReady = false
+        resetOversizedCache.running = true
+        return
+      }
       try {
-        var parsed = JSON.parse(text())
-        root.cacheEntries = parsed && parsed.version === 1 && parsed.entries
+        var parsed = JSON.parse(rawCache)
+        root.cacheEntries = parsed && (parsed.version === 1 || parsed.version === 2) && parsed.entries
           ? parsed.entries
           : ({})
+        root.cacheEntries = DefThis.boundedCacheEntries(
+          root.cacheEntries, root.maxCacheEntries, root.maxCacheBytes)
+        var boundedCache = DefThis.cachePayloadText(root.cacheEntries)
+        if (boundedCache !== rawCache)
+          cacheFile.setText(boundedCache)
       } catch (error) {
         root.cacheEntries = ({})
       }
@@ -212,6 +278,24 @@ Item {
   Process {
     id: ensureCacheDirectory
     command: ["mkdir", "-p", root.cacheRoot]
+    onExited: cacheSizeProcess.running = true
+  }
+
+  Process {
+    id: cacheSizeProcess
+    command: ["stat", "-c", "%s", root.cachePath]
+    stdout: StdioCollector {
+      waitForEnd: true
+      onStreamFinished: root.cacheSizeReceived(text)
+    }
+  }
+
+  Process {
+    id: resetOversizedCache
+    command: ["truncate", "-s", "0", root.cachePath]
+    onExited: function(exitCode) {
+      root.cacheFileReady = exitCode === 0
+    }
   }
 
   Process {
@@ -459,6 +543,5 @@ Item {
 
   Component.onCompleted: {
     ensureCacheDirectory.running = true
-    Qt.callLater(function() { cacheFile.reload() })
   }
 }

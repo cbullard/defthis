@@ -53,6 +53,9 @@ omarchy-shell shell summon io.github.cbullard.defthis '{"term":"serendipity"}'
 
 The selected word is sent to Wiktionary only when it is not already cached.
 Cached definitions are stored in `${XDG_CACHE_HOME:-~/.cache}/omarchy-defthis.json`.
+Wiktionary responses are limited to 1 MiB. The persistent cache is limited to
+100 entries and 1 MiB, with the oldest stored entries pruned first. An oversized
+legacy cache is reset before it can be loaded into the shell process.
 No clipboard watcher runs in the background; selection is read only when the
 overlay is summoned.
 
