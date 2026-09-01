@@ -2,10 +2,10 @@
   "schemaVersion": 1,
   "id": "io.github.cbullard.defthis",
   "name": "DefThis",
-  "version": "1.0.6",
+  "version": "1.2.0",
   "author": "Craig Bullard",
   "license": "MIT",
-  "description": "Define the selected word in a fast, offline-capable dictionary overlay.",
+  "description": "Define the selected word or the word at the text cursor in a fast, offline-capable dictionary overlay.",
   "kinds": [
     "overlay"
   ],

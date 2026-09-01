@@ -78,8 +78,14 @@ class BackendTests(unittest.TestCase):
                         return source[block_start:index + 1]
             self.fail(f"Unterminated QML Text block for {binding}")
 
-        for binding in ("text: root.word ||", "text: root.errorText",
-                        "text: parent.partOfSpeech", "text: parent.definition"):
+        for binding in (
+            "id: wordTitle",
+            "text: root.errorText",
+            "text: parent.partOfSpeech",
+            "text: parent.definition",
+            "text: parent.term",
+            "text: parent.partOfSpeech.length",
+        ):
             with self.subTest(binding=binding):
                 self.assertIn("textFormat: Text.PlainText", text_block(binding))
 
@@ -194,6 +200,88 @@ class BackendTests(unittest.TestCase):
         self.assertFalse(result["cached"])
         self.assertIn("serendipity", backend.load_cache())
 
+    def test_plural_lookup_returns_and_caches_singular_definition(self):
+        requested = []
+        responses = {
+            "children": [
+                {"partOfSpeech": "Noun", "definition": "plural of child"},
+                {"partOfSpeech": "Noun", "definition": "plural of childer"},
+            ],
+            "child": [
+                {"partOfSpeech": "Noun", "definition": "A young person."},
+            ],
+        }
+
+        def fetch(term):
+            requested.append(term)
+            return responses[term]
+
+        result = backend.lookup("children", fetch)
+        self.assertEqual(requested, ["children", "child"])
+        self.assertEqual(result["status"], "ok")
+        self.assertEqual(result["term"], "child")
+        self.assertEqual(result["definitions"], responses["child"])
+        self.assertFalse(result["cached"])
+
+        def unexpected_fetch(_term):
+            self.fail("resolved plural should be available offline")
+
+        cached = backend.lookup("children", unexpected_fetch)
+        self.assertEqual(cached["term"], "child")
+        self.assertEqual(cached["definitions"], responses["child"])
+        self.assertTrue(cached["cached"])
+
+    def test_plural_lookup_falls_back_to_plural_entry(self):
+        plural_definitions = [
+            {"partOfSpeech": "Noun", "definition": "plural of cat"},
+            {
+                "partOfSpeech": "Verb",
+                "definition": "third-person singular present of cat",
+            },
+        ]
+
+        def fetch(term):
+            if term == "cats":
+                return plural_definitions
+            raise backend.LookupUnavailable
+
+        result = backend.lookup("cats", fetch)
+        self.assertEqual(result["status"], "ok")
+        self.assertEqual(result["term"], "cats")
+        self.assertEqual(result["definitions"], plural_definitions)
+
+    def test_verb_form_does_not_trigger_singular_noun_lookup(self):
+        requested = []
+        definitions = [{
+            "partOfSpeech": "Verb",
+            "definition": "plural of an imaginary verb",
+        }]
+
+        def fetch(term):
+            requested.append(term)
+            return definitions
+
+        result = backend.lookup("example", fetch)
+        self.assertEqual(requested, ["example"])
+        self.assertEqual(result["term"], "example")
+        self.assertEqual(result["definitions"], definitions)
+
+    def test_cached_legacy_plural_entry_is_upgraded(self):
+        backend.save_cache({
+            "knives": [{"partOfSpeech": "Noun", "definition": "plural of knife"}],
+            "knife": [{"partOfSpeech": "Noun", "definition": "A cutting tool."}],
+        })
+
+        def unexpected_fetch(_term):
+            self.fail("the singular definition is already cached")
+
+        result = backend.lookup("knives", unexpected_fetch)
+        self.assertEqual(result["term"], "knife")
+        self.assertEqual(result["definitions"][0]["definition"], "A cutting tool.")
+        self.assertTrue(result["cached"])
+        _entries, aliases = backend.load_cache_state()
+        self.assertEqual(aliases["knives"], "knife")
+
     def test_primary_selection_is_bounded_before_output(self):
         class FakeProcess:
             def __init__(self, data):
@@ -220,6 +308,161 @@ class BackendTests(unittest.TestCase):
         oversized = b"x" * (backend.MAX_SELECTION_BYTES + 1)
         with patch.object(backend.subprocess, "Popen", return_value=FakeProcess(oversized)):
             self.assertEqual(backend.primary_selection()["status"], "oversized")
+
+    def test_focused_term_prefers_current_accessible_selection(self):
+        atspi, desktop, focused_text = self.accessibility_fixture(
+            content="alpha current omega",
+            caret=8,
+            selection=(6, 13),
+            word="current",
+        )
+        result = backend.focused_term(atspi, [desktop])
+        self.assertEqual(result, {
+            "status": "ok", "term": "current", "source": "selection",
+        })
+        self.assertEqual(focused_text.string_requests, 0)
+
+    def test_focused_term_uses_word_at_caret_without_selection(self):
+        atspi, desktop, _focused_text = self.accessibility_fixture(
+            content="alpha current omega",
+            caret=8,
+            selection=None,
+            word="current",
+        )
+        result = backend.focused_term(atspi, [desktop])
+        self.assertEqual(result, {
+            "status": "ok", "term": "current", "source": "caret",
+        })
+
+    def test_focused_term_uses_indexed_desktop_api(self):
+        atspi, desktop, _focused_text = self.accessibility_fixture(
+            content="alpha current omega",
+            caret=8,
+            selection=None,
+            word="current",
+        )
+        atspi.get_desktop_count = lambda: 1
+        atspi.get_desktop = lambda index: desktop if index == 0 else None
+        result = backend.focused_term(atspi)
+        self.assertEqual(result["term"], "current")
+
+    def test_active_window_pid_is_read_from_bounded_hyprctl_output(self):
+        class FakeProcess:
+            def __init__(self, data):
+                self.stdout = io.BytesIO(data)
+                self.return_code = None
+
+            def wait(self, timeout=None):
+                self.return_code = 0
+                return 0
+
+            def poll(self):
+                return self.return_code
+
+            def terminate(self):
+                self.return_code = -15
+
+            def kill(self):
+                self.return_code = -9
+
+        payload = json.dumps({"pid": 4242}).encode()
+        with patch.object(backend.subprocess, "Popen", return_value=FakeProcess(payload)):
+            self.assertEqual(backend.active_window_pid(), 4242)
+        oversized = b"x" * (backend.MAX_ACTIVE_WINDOW_BYTES + 1)
+        with patch.object(backend.subprocess, "Popen", return_value=FakeProcess(oversized)):
+            self.assertIsNone(backend.active_window_pid())
+
+    def test_active_application_wins_over_stale_focused_selection(self):
+        atspi, desktop, _focused_text = self.accessibility_fixture(
+            content="alpha current omega",
+            caret=8,
+            selection=None,
+            word="current",
+        )
+        _other_atspi, stale_desktop, _stale_text = self.accessibility_fixture(
+            content="previous",
+            caret=2,
+            selection=(0, 8),
+            word="previous",
+        )
+        stale_application = stale_desktop.children[0]
+        stale_application.pid = 1111
+        desktop.children.insert(0, stale_application)
+        result = backend.focused_term(
+            atspi, [desktop], active_pid=4242)
+        self.assertEqual(result, {
+            "status": "ok", "term": "current", "source": "caret",
+        })
+
+    def accessibility_fixture(self, *, content, caret, selection, word):
+        class StateSet:
+            def __init__(self, states):
+                self.states = states
+
+            def contains(self, state):
+                return state in self.states
+
+        class Text:
+            def __init__(self):
+                self.string_requests = 0
+
+            def get_n_selections(self):
+                return int(selection is not None)
+
+            def get_selection(self, _index):
+                return type("Range", (), {
+                    "start_offset": selection[0], "end_offset": selection[1],
+                })()
+
+            def get_text(self, start, end):
+                return content[start:end]
+
+            def get_caret_offset(self):
+                return caret
+
+            def get_string_at_offset(self, offset, granularity):
+                self.string_requests += 1
+                self.last_request = (offset, granularity)
+                return type("TextRange", (), {"content": word})()
+
+        class Accessible:
+            def __init__(self, *, children=(), states=(), text=None, pid=0):
+                self.children = list(children)
+                self.states = StateSet(set(states))
+                self.text = text
+                self.pid = pid
+
+            def get_child_count(self):
+                return len(self.children)
+
+            def get_child_at_index(self, index):
+                return self.children[index]
+
+            def get_state_set(self):
+                return self.states
+
+            def is_text(self):
+                return self.text is not None
+
+            def get_text_iface(self):
+                return self.text
+
+            def get_process_id(self):
+                return self.pid
+
+        state_type = type("StateType", (), {
+            "ACTIVE": "active", "FOCUSED": "focused",
+        })
+        granularity = type("TextGranularity", (), {"WORD": "word"})
+        fake_atspi = type("Atspi", (), {
+            "StateType": state_type, "TextGranularity": granularity,
+        })()
+        focused_text = Text()
+        focused = Accessible(states=("focused",), text=focused_text)
+        window = Accessible(children=(focused,), states=("active",))
+        application = Accessible(children=(window,), pid=4242)
+        desktop = Accessible(children=(application,))
+        return fake_atspi, desktop, focused_text
 
     def run_server_case(self, mode):
         handler = type("CaseHandler", (_ResponseHandler,), {"mode": mode})

@@ -1,0 +1,112 @@
+#!/usr/bin/env python3
+"""Invoke DefThis from a user-selected global shortcut."""
+
+from __future__ import annotations
+
+import subprocess
+import sys
+import time
+from collections.abc import Callable, Sequence
+
+
+COMMAND_TIMEOUT_SECONDS = 1.0
+KEY_HOLD_SECONDS = 0.05
+BETWEEN_CHORDS_SECONDS = 0.05
+SELECTION_SETTLE_SECONDS = 0.10
+SUMMON_COMMAND = [
+    "omarchy-shell",
+    "-q",
+    "shell",
+    "summon",
+    "io.github.cbullard.defthis",
+    '{"selectionOnly":true}',
+]
+
+CommandRunner = Callable[[Sequence[str]], bool]
+Pause = Callable[[float], None]
+
+
+def run_command(arguments: Sequence[str]) -> bool:
+    try:
+        result = subprocess.run(
+            list(arguments),
+            check=False,
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            timeout=COMMAND_TIMEOUT_SECONDS,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return False
+    return result.returncode == 0
+
+
+def key_state_expression(modifiers: str, key: str, state: str) -> str:
+    return (
+        'hl.dsp.send_key_state({ mods = "'
+        + modifiers
+        + '", key = "'
+        + key
+        + '", state = "'
+        + state
+        + '" })'
+    )
+
+
+def send_key_state(
+    modifiers: str,
+    key: str,
+    state: str,
+    runner: CommandRunner,
+) -> bool:
+    return runner([
+        "hyprctl",
+        "dispatch",
+        key_state_expression(modifiers, key, state),
+    ])
+
+
+def send_chord(
+    modifiers: str,
+    key: str,
+    runner: CommandRunner,
+    pause: Pause,
+) -> bool:
+    pressed = send_key_state(modifiers, key, "down", runner)
+    pause(KEY_HOLD_SECONDS)
+    released = send_key_state(modifiers, key, "up", runner)
+    return pressed and released
+
+
+def select_word_at_cursor(runner: CommandRunner, pause: Pause) -> bool:
+    moved = send_chord("CTRL", "RIGHT", runner, pause)
+    pause(BETWEEN_CHORDS_SECONDS)
+    selected = send_chord("CTRL + SHIFT", "LEFT", runner, pause)
+    pause(SELECTION_SETTLE_SECONDS)
+    return moved and selected
+
+
+def summon(runner: CommandRunner) -> bool:
+    return runner(SUMMON_COMMAND)
+
+
+def main(
+    arguments: Sequence[str],
+    runner: CommandRunner = run_command,
+    pause: Pause = time.sleep,
+) -> int:
+    mode = arguments[0] if arguments else "selection"
+    if mode not in {"selection", "cursor"} or len(arguments) > 1:
+        print("usage: omarchy-defthis [selection|cursor]", file=sys.stderr)
+        return 2
+
+    prepared = True
+    if mode == "cursor":
+        prepared = select_word_at_cursor(runner, pause)
+
+    opened = summon(runner)
+    return 0 if prepared and opened else 1
+
+
+if __name__ == "__main__":
+    raise SystemExit(main(sys.argv[1:]))
